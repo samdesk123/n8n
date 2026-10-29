@@ -1,4 +1,9 @@
+
 services:
+
+  # ==========================================
+  # n8n - AI Workflow Orchestrator
+  # ==========================================
   n8n:
     image: n8nio/n8n
     restart: always
@@ -7,31 +12,88 @@ services:
       - "127.0.0.1:5678:5678"
 
     environment:
-      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - DISCORD_PUBLIC_KEY=${DISCORD_PUBLIC_KEY}
 
       - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
 
       - N8N_EDITOR_BASE_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
-      - N8N_WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
+      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
 
       - N8N_PROXY_HOPS=1
-
       - NODE_ENV=production
 
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - TZ=${GENERIC_TIMEZONE}
 
-      - N8N_RESTRICT_FILE_ACCESS_TO=/files
+      # Allow access to existing files and baby videos
+      - N8N_RESTRICT_FILE_ACCESS_TO=/files;/baby-output
+
+      # Preserve existing workflow functionality
       - N8N_ENABLE_EXECUTE_COMMAND=true
       - NODES_EXCLUDE=[]
 
-      - N8N_LOG_LEVEL=debug
+      - N8N_LOG_LEVEL=info
 
     volumes:
       - n8n_data:/home/node/.n8n
       - /Users/tanvi/files:/files
+      - /Users/tanvi/Project/n8n-compose/baby-video-ai/output:/baby-output
 
+    networks:
+      - baby-ai
+
+  # ==========================================
+  # Cloudflare Tunnel
+  # ==========================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+
+    depends_on:
+      - n8n
+
+    networks:
+      - baby-ai
+
+  # ==========================================
+  # Baby Video AI - Python FFmpeg Renderer
+  # ==========================================
+  baby-renderer:
+    build:
+      context: ./baby-video-ai/renderer
+      dockerfile: Dockerfile
+
+    container_name: baby-renderer
+    restart: unless-stopped
+
+    environment:
+      - RENDERER_API_TOKEN=${RENDERER_API_TOKEN}
+      - TZ=${GENERIC_TIMEZONE}
+
+    volumes:
+      - /Users/tanvi/Project/n8n-compose/baby-video-ai/output:/app/output
+
+    expose:
+      - "8000"
+
+    networks:
+      - baby-ai
+
+# ==========================================
+# Persistent Volumes
+# ==========================================
 volumes:
   n8n_data:
+
+# ==========================================
+# Docker Networks
+# ==========================================
+networks:
+  baby-ai:
+    driver: bridge
